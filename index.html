@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>macDrop - Bidirectional File Transfer</title>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  <!-- QR Code library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
+  <!-- PeerJS library for WebRTC -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="logo-icon"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <h1>mac<span>Drop</span></h1>
+      </div>
+      <div id="modeBadge" class="badge">Initializing...</div>
+    </header>
+
+    <!-- RECEIVER VIEW (Dashboard on Mac) -->
+    <main id="receiverView" class="view-panel hidden">
+      <div class="grid-layout">
+        <!-- Left Column: Connection & Sending -->
+        <div class="left-column">
+          <!-- Connection Panel -->
+          <div class="card connection-card">
+            <h2>Connect Your Device</h2>
+            <p class="subtitle">Scan this QR code from your mobile or another device to start transferring files.</p>
+            <div class="qr-container">
+              <canvas id="qrCodeCanvas"></canvas>
+              <div id="qrPlaceholder" class="qr-placeholder">Generating connection code...</div>
+            </div>
+            <div class="address-box">
+              <span class="label">Join URL:</span>
+              <div class="copy-input-group">
+                <input type="text" id="joinUrlInput" readonly value="Loading...">
+                <button id="copyUrlBtn" class="btn btn-secondary">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="local-directory-tip hidden" id="localSaveTip">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+              <span>Received files are saved directly to <strong>uploads/</strong>.</span>
+            </div>
+          </div>
+
+          <!-- Mac Outgoing/Send Panel -->
+          <div class="card send-card-mac">
+            <h2>Send to Connected Device</h2>
+            <p class="subtitle">Drag files here to send them back to the connected phone/device.</p>
+            <div class="drop-zone" id="receiverDropZone">
+              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="upload-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              <p class="drop-text">Drag files or click to share</p>
+              <input type="file" id="receiverFileSelector" multiple class="file-input" disabled>
+            </div>
+            <!-- Outgoing files queue for Mac -->
+            <div class="selected-files-container hidden" id="receiverSelectedContainer">
+              <div id="receiverSelectedList" class="files-list"></div>
+              <button id="receiverSendBtn" class="btn btn-primary btn-block" disabled>Send to Device</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Transfer Status & History Panel -->
+        <div class="card status-card">
+          <div class="card-header">
+            <h2>Transfers Log</h2>
+            <div id="connectionStatus" class="status-indicator offline">Disconnected</div>
+          </div>
+          <div class="transfers-container">
+            <div id="emptyTransfers" class="empty-state">
+              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              <p>No active transfers</p>
+            </div>
+            <div id="transferList" class="transfer-list hidden"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- SENDER VIEW (Upload interface on Phone) -->
+    <main id="senderView" class="view-panel hidden">
+      <!-- Upload Card -->
+      <div class="card sender-card">
+        <div class="card-header">
+          <h2>Send to Mac</h2>
+          <div id="senderConnectionStatus" class="status-indicator offline">Connecting...</div>
+        </div>
+        
+        <!-- Drag & Drop Zone -->
+        <div class="drop-zone" id="dropZone">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="upload-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+          <p class="drop-text">Drag & drop files or click to browse</p>
+          <input type="file" id="fileSelector" multiple class="file-input">
+        </div>
+
+        <!-- Selected Files List -->
+        <div class="selected-files-container hidden" id="selectedFilesContainer">
+          <h3>Files to Send</h3>
+          <div id="selectedFilesList" class="files-list"></div>
+          <div class="actions">
+            <button id="sendBtn" class="btn btn-primary btn-block" disabled>Send Files</button>
+          </div>
+        </div>
+
+        <!-- Active Send Progress -->
+        <div class="send-progress-container hidden" id="sendProgressContainer">
+          <h3>Sending Progress</h3>
+          <div id="sendProgressList" class="transfer-list"></div>
+        </div>
+      </div>
+
+      <!-- Received from Mac Card -->
+      <div class="card received-card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+          <h2>Received from Mac</h2>
+        </div>
+        <div class="transfers-container">
+          <div id="emptyReceived" class="empty-state">
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+            <p>No files received yet</p>
+          </div>
+          <div id="receivedList" class="transfer-list hidden"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+  <script src="app.js"></script>
+</body>
+</html>
