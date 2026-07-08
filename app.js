@@ -205,7 +205,16 @@ function initWebRTCReceiver() {
     debug: 1
   });
 
+  const peerTimeout = setTimeout(() => {
+    if (!peer || !peer.id) {
+      connectionStatus.textContent = 'Cloud Connection Slow/Offline';
+      connectionStatus.className = 'status-indicator offline';
+      showToast('WebRTC cloud connection is slow. You can still use Local Mode offline.', 'warning');
+    }
+  }, 10000);
+
   peer.on('open', (id) => {
+    clearTimeout(peerTimeout);
     console.log('PeerJS Receiver ID:', id);
     connectionStatus.textContent = 'Waiting for Devices';
     connectionStatus.className = 'status-indicator online';
@@ -216,6 +225,7 @@ function initWebRTCReceiver() {
   });
 
   peer.on('error', (err) => {
+    clearTimeout(peerTimeout);
     console.error('PeerJS error:', err);
     connectionStatus.textContent = 'Network Error';
     connectionStatus.className = 'status-indicator offline';
@@ -232,19 +242,37 @@ function initWebRTCReceiver() {
     receiverFileSelector.removeAttribute('disabled');
     updateReceiverSendBtnState();
     
+    // Monitor connectionState on RTCPeerConnection for absolute disconnection detection
+    if (conn.peerConnection) {
+      conn.peerConnection.addEventListener('connectionstatechange', () => {
+        const state = conn.peerConnection.connectionState;
+        console.log('RTCPeerConnection state change:', state);
+        if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+          handleReceiverDisconnect();
+        }
+      });
+    }
+
     conn.on('data', (data) => {
       handleIncomingData(conn, data);
     });
 
     conn.on('close', () => {
-      connectionStatus.textContent = 'Device Disconnected';
-      showToast('Sender device disconnected', 'warning');
-      activeConnection = null;
-      receiverFileSelector.setAttribute('disabled', 'true');
-      updateReceiverSendBtnState();
+      handleReceiverDisconnect();
     });
   });
 }
+
+function handleReceiverDisconnect() {
+  if (!activeConnection) return;
+  console.log('Receiver disconnected from sender');
+  connectionStatus.textContent = 'Device Disconnected';
+  showToast('Sender device disconnected', 'warning');
+  activeConnection = null;
+  receiverFileSelector.setAttribute('disabled', 'true');
+  updateReceiverSendBtnState();
+}
+
 
 function handleIncomingData(conn, data) {
   if (!data || typeof data !== 'object') return;
@@ -576,7 +604,16 @@ function initWebRTCSender(receiverId) {
     debug: 1
   });
 
+  const senderPeerTimeout = setTimeout(() => {
+    if (!peer || !peer.id) {
+      senderConnectionStatus.textContent = 'Connection Slow/Offline';
+      senderConnectionStatus.className = 'status-indicator offline';
+      showToast('WebRTC cloud connection is slow.', 'warning');
+    }
+  }, 10000);
+
   peer.on('open', (id) => {
+    clearTimeout(senderPeerTimeout);
     console.log('Sender Peer ID:', id);
     const conn = peer.connect(receiverId, {
       reliable: true
@@ -593,6 +630,17 @@ function initWebRTCSender(receiverId) {
       updateSendButtonState();
     });
 
+    // Monitor connectionState on RTCPeerConnection for absolute disconnection detection
+    if (conn.peerConnection) {
+      conn.peerConnection.addEventListener('connectionstatechange', () => {
+        const state = conn.peerConnection.connectionState;
+        console.log('RTCPeerConnection state change:', state);
+        if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+          handleSenderDisconnect();
+        }
+      });
+    }
+
     conn.on('data', (data) => {
       // In sender mode, handle files sent from the Mac
       handleIncomingData(conn, data);
@@ -604,20 +652,28 @@ function initWebRTCSender(receiverId) {
     });
 
     conn.on('close', () => {
-      senderConnectionStatus.textContent = 'Disconnected';
-      senderConnectionStatus.className = 'status-indicator offline';
-      showToast('Disconnected from Mac', 'warning');
-      activeConnection = null;
-      updateSendButtonState();
+      handleSenderDisconnect();
     });
   });
 
   peer.on('error', (err) => {
+    clearTimeout(senderPeerTimeout);
     console.error('Peer error:', err);
     senderConnectionStatus.textContent = 'Connection Error';
     senderConnectionStatus.className = 'status-indicator offline';
   });
 }
+
+function handleSenderDisconnect() {
+  if (!activeConnection) return;
+  console.log('Sender disconnected from receiver');
+  senderConnectionStatus.textContent = 'Disconnected';
+  senderConnectionStatus.className = 'status-indicator offline';
+  showToast('Disconnected from Mac', 'warning');
+  activeConnection = null;
+  updateSendButtonState();
+}
+
 
 function handleFileSelection(filesList) {
   filesToSend = Array.from(filesList);
